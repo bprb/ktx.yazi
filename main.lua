@@ -99,15 +99,20 @@ function M:peek(job)
 		end
 	end
 
+	local sorted = {}
+	for key in pairs(ktx) do table.insert(sorted, key) end
+	table.sort(sorted)
+
 	local v = {}
-	v[#v+1] = '--------------------  header   --------------------'
-	for key, value in pairs(ktx) do
+	v[#v+1] = '-------------------- header ----------------------'
+	for _, key in ipairs(sorted) do
 		if key ~= 'keyValueData' then
+			local value = ktx[key]
 			v[#v+1] = rpad(tostring(key), 30) .. rpad(tostring(value), 12) .. string.format("0x%x", value)
 		end
 	end
 	v[#v+1] = ''
-	v[#v+1] = '-------------------- meta data --------------------'
+	v[#v+1] = '------------------- meta data --------------------'
 	for key, value in pairs(ktx.keyValueData) do
 		v[#v+1] = rpad(tostring(key), 30) .. tostring(value)
 	end
