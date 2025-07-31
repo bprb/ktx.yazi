@@ -44,6 +44,39 @@ local function rpad(s, len, char)
 	return #s >= len and s or (s .. string.rep(char or ' ', len - #s))
 end
 
+local function lpad(s, len, char)
+	return #s >= len and s or ( string.rep(char or ' ', len - #s) .. s)
+end
+
+
+local function safe_ascii(str)
+    local result = ""
+    for i = 1, #str do
+        local b = string.byte(str, i)
+		if b ~= 0 then
+        	if b < 32 or b > 255 then
+				result = result .. string.format("\\x%02X", b)
+        	else
+        	    result = result .. string.sub(str, i, i)
+        	end
+		end
+    end
+    return result
+end
+
+local function getUint32(dataView, offset, isLittleEndian)
+    local byte1 = string.byte(dataView, offset + 1)
+    local byte2 = string.byte(dataView, offset + 2)
+    local byte3 = string.byte(dataView, offset + 3)
+    local byte4 = string.byte(dataView, offset + 4)
+
+    if isLittleEndian then
+        return byte1 + (byte2 * 256) + (byte3 * 65536) + (byte4 * 16777216)
+    else
+        return byte4 + (byte3 * 256) + (byte2 * 65536) + (byte1 * 16777216)
+    end
+end
+
 function M:peek(job)
 	local filepath = tostring(job.file.url)
 	local file     = io.open(filepath, "rb")
@@ -51,71 +84,135 @@ function M:peek(job)
 		return print(job, "Error: Could not open file " .. filepath)
 	end
 
-	local ktx = {}
+	local dataView = file:read("*a")
+	file:close()
 
-	local identifier          = read_bytes(file, 12)
+    local offset = 0
+
 	local expected_identifier = "\xAB\x4B\x54\x58\x20\x31\x31\xBB\x0D\x0A\x1A\x0A"
+	local identifier          = string.sub(dataView, offset + 1, offset + 1 + #expected_identifier - 1)
 	if identifier ~= expected_identifier then
-		file:close()
 		return print(job, "Error: Invalid KTX file identifier.")
 	end
+    offset = offset + 12
 
-	ktx.endianness            = read_uint32_le(file)
-	ktx.glType                = read_uint32_le(file)
-	ktx.glTypeSize            = read_uint32_le(file)
-	ktx.glFormat              = read_uint32_le(file)
-	ktx.glInternalFormat      = read_uint32_le(file)
-	ktx.glBaseInternalFormat  = read_uint32_le(file)
-	ktx.pixelWidth            = read_uint32_le(file)
-	ktx.pixelHeight           = read_uint32_le(file)
-	ktx.pixelDepth            = read_uint32_le(file)
-	ktx.numberOfArrayElements = read_uint32_le(file)
-	ktx.numberOfFaces         = read_uint32_le(file)
-	ktx.numberOfMipmapLevels  = read_uint32_le(file)
-	ktx.bytesOfKeyValueData   = read_uint32_le(file)
+    local endiannessTest = getUint32(dataView, offset, true)
+    local isLittleEndian = (endiannessTest == 0x04030201)
+    local isBigEndian = (endiannessTest == 0x01020304)
 
-	ktx.keyValueData	= {}
-	if ktx.bytesOfKeyValueData > 0 then
-		local bytes_read_kv = 0
-		while bytes_read_kv < ktx.bytesOfKeyValueData do
-			local keyAndValueByteSize = read_uint32_le(file)
-			if not keyAndValueByteSize then break end
-			local key_value_pair_data = read_bytes(file, keyAndValueByteSize)
-			if not key_value_pair_data then break end
+    if not isLittleEndian and not isBigEndian then
+        return print(job, "Invalid KTX endianness field.")
+    end
+    offset = offset + 4
 
-			local null_pos = string.find(key_value_pair_data, "\0")
-			if null_pos then
-				local key   = string.sub(key_value_pair_data, 1, null_pos - 1)
-				local value = string.sub(key_value_pair_data, null_pos + 1)
-				ktx.keyValueData[key] = value
-			end
+    local header = {}
+    header.glType                = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.glTypeSize            = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.glFormat              = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.glInternalFormat      = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.glBaseInternalFormat  = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.pixelWidth            = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.pixelHeight           = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.pixelDepth            = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.numberOfArrayElements = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.numberOfFaces         = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.numberOfMipmapLevels  = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
+    header.bytesOfKeyValueData   = getUint32(dataView, offset, isLittleEndian) ; offset = offset + 4
 
-			-- Pad to 4-byte boundary
-			local padding = (4 - (keyAndValueByteSize % 4)) % 4
-			if padding > 0 then
-				read_bytes(file, padding)
-			end
-			bytes_read_kv = bytes_read_kv + keyAndValueByteSize + padding
-		end
-	end
+    if header.numberOfMipmapLevels == 0 then
+        local maxDim = math.max(header.pixelWidth, header.pixelHeight, header.pixelDepth)
+        header.numberOfMipmapLevels = math.floor(math.log(maxDim, 2)) + 1
+    end
+
+    local keyValueDataBytes = string.sub(dataView, offset + 1, offset + header.bytesOfKeyValueData)
+    offset = offset + header.bytesOfKeyValueData
+
+    local keyValuePairs = {}
+    local kvOffset = 0
+    while kvOffset < #keyValueDataBytes do
+        local keyAndValueSize = getUint32(keyValueDataBytes, kvOffset, isLittleEndian)
+        kvOffset = kvOffset + 4
+
+        local keyAndValueBytes = string.sub(keyValueDataBytes, kvOffset + 1, kvOffset + keyAndValueSize)
+        kvOffset = kvOffset + keyAndValueSize
+
+        local keyEnd = 0
+        while keyEnd < #keyAndValueBytes and string.byte(keyAndValueBytes, keyEnd + 1) ~= 0x00 do
+            keyEnd = keyEnd + 1
+        end
+        local key = string.sub(keyAndValueBytes, 1, keyEnd)
+        local value = string.sub(keyAndValueBytes, keyEnd + 2)
+
+        keyValuePairs[key] = value
+
+        local padding = (4 - (keyAndValueSize % 4)) % 4
+        kvOffset = kvOffset + padding
+    end
+
+    local mipmapLevels = {}
+    local currentPixelWidth  = header.pixelWidth
+    local currentPixelHeight = header.pixelHeight
+    local currentPixelDepth  = header.pixelDepth
+
+    for level = 0, header.numberOfMipmapLevels - 1 do
+        local imageSize = getUint32(dataView, offset, isLittleEndian)
+        offset = offset + 4
+
+        local imagePadding = (4 - (offset % 4)) % 4
+        offset = offset + imagePadding
+
+        table.insert(mipmapLevels, {
+            level      = level,
+            imageSize  = imageSize,
+            width      = currentPixelWidth,
+            height     = currentPixelHeight,
+            depth      = currentPixelDepth,
+            dataOffset = offset,
+            dataLength = imageSize
+        })
+
+        offset = offset + imageSize
+
+        currentPixelWidth  = math.max(1, math.floor(currentPixelWidth / 2))
+        currentPixelHeight = math.max(1, math.floor(currentPixelHeight / 2))
+        currentPixelDepth  = math.max(1, math.floor(currentPixelDepth / 2))
+    end
 
 	local sorted = {}
-	for key in pairs(ktx) do table.insert(sorted, key) end
+	for key in pairs(header) do table.insert(sorted, key) end
 	table.sort(sorted)
 
 	local v = {}
-	v[#v+1] = '-------------------- header ----------------------'
+
+	v[#v+1] = '-------------------- header ----------------------------'
 	for _, key in ipairs(sorted) do
-		if key ~= 'keyValueData' then
-			local value = ktx[key]
-			v[#v+1] = rpad(tostring(key), 30) .. rpad(tostring(value), 12) .. string.format("0x%x", value)
-		end
+		local value = header[key]
+		v[#v+1] = rpad(tostring(key), 30) .. ' ' .. rpad(tostring(value), 12) .. ' ' .. string.format("0x%x", value)
 	end
 	v[#v+1] = ''
-	v[#v+1] = '------------------- meta data --------------------'
-	for key, value in pairs(ktx.keyValueData) do
-		v[#v+1] = rpad(tostring(key), 30) .. tostring(value)
+
+	v[#v+1] = '------------------- meta data --------------------------'
+	sorted = {}
+	for key in pairs(keyValuePairs) do table.insert(sorted, key) end
+	table.sort(sorted)
+	for _, key in ipairs(sorted) do
+		local value = keyValuePairs[key]
+		v[#v+1] = rpad(safe_ascii(key), 30) .. ' ' .. safe_ascii(value)
 	end
+
+	v[#v+1] = ''
+
+	v[#v+1] = '------------------- mip levels -------------------------'
+	v[#v+1] = '  mip width  height   depth   size            offset'
+	for index, mip in ipairs(mipmapLevels) do
+		v[#v+1] = lpad(tostring(index), 5) .. ' ' ..
+				lpad(tostring(mip.width), 5) .. ' × ' .. 
+				lpad(tostring(mip.height), 5) .. ' × ' ..
+				mip.depth .. '      ' ..
+				lpad(tostring(mip.dataLength), 7) .. ' bytes at ' ..
+				string.format("0x%08x",mip.dataOffset)
+	end
+
 	return print(job, table.concat(v, '\n'))
 end
 
