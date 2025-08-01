@@ -61,7 +61,7 @@ function M:peek(job)
 
 	local endiannessTest = as_u32(bytes, offset, true)
 	local isLittleEndian = (endiannessTest == 0x04030201)
-	local isBigEndian	= (endiannessTest == 0x01020304)
+	local isBigEndian    = (endiannessTest == 0x01020304)
 
 	if not isLittleEndian and not isBigEndian then
 		return print(job, "Invalid KTX endianness field.")
@@ -69,16 +69,16 @@ function M:peek(job)
 	offset = offset + 4
 
 	local header = {}
-	header.glType				= as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
-	header.glTypeSize			= as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
-	header.glFormat			  = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
-	header.glInternalFormat	  = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
+	header.glType                = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
+	header.glTypeSize            = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
+	header.glFormat              = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
+	header.glInternalFormat      = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
 	header.glBaseInternalFormat  = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
-	header.pixelWidth			= as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
-	header.pixelHeight		   = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
-	header.pixelDepth			= as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
+	header.pixelWidth            = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
+	header.pixelHeight           = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
+	header.pixelDepth            = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
 	header.numberOfArrayElements = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
-	header.numberOfFaces		 = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
+	header.numberOfFaces         = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
 	header.numberOfMipmapLevels  = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
 	header.bytesOfKeyValueData   = as_u32(bytes, offset, isLittleEndian) ; offset = offset + 4
 
@@ -91,7 +91,7 @@ function M:peek(job)
 	offset = offset + header.bytesOfKeyValueData
 
 	local keyValuePairs = {}
-	local kvOffset = 0
+	local kvOffset      = 0
 	while kvOffset < #keyValueDataBytes do
 		local keyAndValueSize = as_u32(keyValueDataBytes, kvOffset, isLittleEndian)
 		kvOffset = kvOffset + 4
@@ -112,7 +112,7 @@ function M:peek(job)
 		kvOffset = kvOffset + padding
 	end
 
-	local mipmapLevels = {}
+	local mipmapLevels       = {}
 	local currentPixelWidth  = header.pixelWidth
 	local currentPixelHeight = header.pixelHeight
 	local currentPixelDepth  = header.pixelDepth
@@ -125,11 +125,11 @@ function M:peek(job)
 		offset = offset + imagePadding
 
 		table.insert(mipmapLevels, {
-			level	  = level,
+			level      = level,
 			imageSize  = imageSize,
-			width	  = currentPixelWidth,
-			height	 = currentPixelHeight,
-			depth	  = currentPixelDepth,
+			width      = currentPixelWidth,
+			height     = currentPixelHeight,
+			depth      = currentPixelDepth,
 			dataOffset = offset,
 			dataLength = imageSize
 		})
@@ -150,7 +150,9 @@ function M:peek(job)
 	v[#v+1] = '-------------------- header ----------------------------'
 	for _, key in ipairs(sorted) do
 		local value = header[key]
-		v[#v+1] = rpad(tostring(key), 30) .. ' ' .. rpad(tostring(value), 12) .. ' ' .. string.format("0x%x", value)
+		v[#v+1] = rpad(tostring(key), 30)   .. ' ' ..
+		          rpad(tostring(value), 12) .. ' ' ..
+				  string.format("0x%x", value)
 	end
 	v[#v+1] = ''
 
@@ -166,14 +168,14 @@ function M:peek(job)
 	v[#v+1] = ''
 
 	v[#v+1] = '------------------- mip levels -------------------------'
-	v[#v+1] = '  mip width  height   depth   size			offset'
+	v[#v+1] = '  mip width  height   depth   size            offset'
 	for index, mip in ipairs(mipmapLevels) do
-		v[#v+1] = lpad(tostring(index), 5) .. ' ' ..
-				lpad(tostring(mip.width), 5) .. ' × ' .. 
-				lpad(tostring(mip.height), 5) .. ' × ' ..
-				mip.depth .. '	  ' ..
-				lpad(tostring(mip.dataLength), 7) .. ' bytes at ' ..
-				string.format("0x%08x",mip.dataOffset)
+		v[#v+1] = lpad(tostring(index), 5)          .. ' '          ..
+				  lpad(tostring(mip.width), 5)      .. ' × '        ..
+				  lpad(tostring(mip.height), 5)     .. ' × '        ..
+				  mip.depth                         .. '      '     ..
+				  lpad(tostring(mip.dataLength), 7) .. ' bytes at ' ..
+				  string.format("0x%08x",mip.dataOffset)
 	end
 
 	return print(job, table.concat(v, '\n'))
