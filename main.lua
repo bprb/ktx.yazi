@@ -1,7 +1,9 @@
 local M = {}
 
-local function print(job, s)
-	ya.preview_widget(job, ui.Text.parse(s):area(job.area):wrap(ui.Wrap.YES))
+local theme = THEME
+
+local function error(job, s, color)
+	ya.preview_widget(job, ui.Text.parse(s):area(job.area):wrap(ui.Wrap.YES):fg("red"))
 end
 
 local function rpad(s, len, char)
@@ -44,7 +46,7 @@ function M:peek(job)
 	local filepath = tostring(job.file.url)
 	local file	 = io.open(filepath, "rb")
 	if not file then
-		return print(job, "Error: Could not open file " .. filepath)
+		return error(job, "Error: Could not open file " .. filepath)
 	end
 
 	local bytes = file:read("*a")
@@ -55,7 +57,7 @@ function M:peek(job)
 	local expected_identifier = "\xAB\x4B\x54\x58\x20\x31\x31\xBB\x0D\x0A\x1A\x0A"
 	local identifier		  = string.sub(bytes, offset + 1, offset + 1 + #expected_identifier - 1)
 	if identifier ~= expected_identifier then
-		return print(job, "Error: Invalid KTX file identifier.")
+		return error(job, "Error: Invalid KTX file identifier.")
 	end
 	offset = offset + 12
 
@@ -64,7 +66,7 @@ function M:peek(job)
 	local isBigEndian    = (endiannessTest == 0x01020304)
 
 	if not isLittleEndian and not isBigEndian then
-		return print(job, "Invalid KTX endianness field.")
+		return error(job, "Invalid KTX endianness field.")
 	end
 	offset = offset + 4
 
@@ -147,38 +149,57 @@ function M:peek(job)
 
 	local v = {}
 
-	v[#v+1] = '-------------------- header ----------------------------'
+	v[#v+1] = ui.Line({
+				ui.Span('-------------------- '),
+				ui.Span('header'):style(ui.Style():fg("green")),
+				ui.Span(' ----------------------------'),
+			})
 	for _, key in ipairs(sorted) do
 		local value = header[key]
-		v[#v+1] = rpad(tostring(key), 30)   .. ' ' ..
-		          rpad(tostring(value), 12) .. ' ' ..
-				  string.format("0x%x", value)
+		v[#v+1] = ui.Line({
+					ui.Span(rpad(tostring(key), 30) .. ' '):style(ui.Style():fg("blue")),
+		          	ui.Span(rpad(tostring(value), 12) .. ' ' .. string.format("0x%x", value)),
+				})
 	end
-	v[#v+1] = ''
+	v[#v+1] = ui.Line('')
 
-	v[#v+1] = '------------------- meta data --------------------------'
+	v[#v+1] = ui.Line({
+				ui.Span('------------------- '),
+				ui.Span('meta data'):style(ui.Style():fg("green")),
+				ui.Span(' --------------------------'),
+			})
 	sorted = {}
 	for key in pairs(keyValuePairs) do table.insert(sorted, key) end
 	table.sort(sorted)
 	for _, key in ipairs(sorted) do
 		local value = keyValuePairs[key]
-		v[#v+1] = rpad(safe_ascii(key), 30) .. ' ' .. safe_ascii(value)
+		v[#v+1] = ui.Line({
+				ui.Span(rpad(safe_ascii(key), 30) .. ' '):style(ui.Style():fg("blue")),
+				ui.Span(safe_ascii(value))
+			})
 	end
 
-	v[#v+1] = ''
+	v[#v+1] = ui.Line('')
 
-	v[#v+1] = '------------------- mip levels -------------------------'
-	v[#v+1] = '  mip width  height   depth   size            offset'
+	v[#v+1] = ui.Line({
+					ui.Span('------------------- '),
+					ui.Span('mip levels'):style(ui.Style():fg("green")),
+					ui.Span(' -------------------------')
+				})
+	v[#v+1] = ui.Line('  mip width  height   depth  size             offset'):style(ui.Style()):fg("yellow")
 	for index, mip in ipairs(mipmapLevels) do
-		v[#v+1] = lpad(tostring(index), 5)          .. ' '          ..
-				  lpad(tostring(mip.width), 5)      .. ' × '        ..
-				  lpad(tostring(mip.height), 5)     .. ' × '        ..
-				  mip.depth                         .. '      '     ..
-				  lpad(tostring(mip.dataLength), 7) .. ' bytes at ' ..
-				  string.format("0x%08x",mip.dataOffset)
+		v[#v+1] = ui.Line({
+					ui.Span(lpad(tostring(index), 5)):style(ui.Style():fg("blue")),
+					ui.Span(' '          ..
+						lpad(tostring(mip.width), 5)      .. ' × '        ..
+						lpad(tostring(mip.height), 5)     .. ' × '        ..
+						mip.depth                         .. '      '     ..
+						rpad(tostring(mip.dataLength), 7) .. ' bytes at ' ..
+						string.format("0x%08x",mip.dataOffset))
+					})
 	end
 
-	return print(job, table.concat(v, '\n'))
+	return ya.preview_widget(job, { ui.Text(v):area(job.area):wrap(ui.Wrap.YES) })
 end
 
 function M:seek(job) require("code"):seek(job) end
