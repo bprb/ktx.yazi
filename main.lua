@@ -297,6 +297,10 @@ function M:peek(job)
 					})
 	end
 
+	for i = 1, job.skip do
+		table.remove(v, 1)
+	end
+
 	return ya.preview_widget(job, { ui.Text(v):area(job.area):wrap(ui.Wrap.YES) })
 end
 
